@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environment
+.venv/
+
+# Scrapy
+.scrapy/
+
+# Data outputs
+# Ignore all JSON outputs by default
+*.json
+*.jsonl
+*.jl
+*.sqlite
+*.db
+scrapy_crawler/outputs
+scrapy_crawler/scrapy_crawler/spider_outputs
+
+# OS
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Environment variables / secrets
+.env
+.env.*
+
+# Node / TypeScript
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+
+chatbot/ollama/Lib/
+chatbot/vectorstore
+chatbot/app/__pycache__
+*.faiss
+*.pkl
+*.zip

@@ -1,0 +1,21 @@
+<aside class="sidebar">
+  <div class="sidebar__top">
+    <div>
+      <h2>{{ dictionary().plansTitle }}</h2>
+      <p>{{ plansSavedText }}</p>
+    </div>
+
+    <button class="new-btn" type="button" (click)="newPlan.emit()">{{ dictionary().newPlan }}</button>
+  </div>
+
+  <div class="sidebar__list">
+    @for (plan of plans; track plan.id) {
+      <app-plan-card
+        [plan]="plan"
+        [active]="plan.id === activePlanId"
+        (select)="selectPlan.emit($event)"
+        (delete)="deletePlan.emit($event)">
+      </app-plan-card>
+    }
+  </div>
+</aside>

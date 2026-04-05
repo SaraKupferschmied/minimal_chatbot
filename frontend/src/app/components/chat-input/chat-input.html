@@ -1,0 +1,10 @@
+<form class="chat-input" (ngSubmit)="send()">
+  <input
+    type="text"
+    [(ngModel)]="message"
+    name="message"
+    [placeholder]="dictionary().messagePlaceholder"
+  />
+
+  <button type="submit" [attr.aria-label]="dictionary().sendLabel">➤</button>
+</form>

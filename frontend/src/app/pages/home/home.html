@@ -1,0 +1,138 @@
+<div class="layout">
+  <div
+    class="sidebar-backdrop"
+    [class.sidebar-backdrop--visible]="isSidebarOpen"
+    (click)="closeSidebar()"
+    aria-hidden="true">
+  </div>
+
+  <aside class="sidebar-shell" [class.sidebar-shell--open]="isSidebarOpen">
+    <app-plans-sidebar
+      [plans]="plans()"
+      [activePlanId]="activePlanId"
+      (newPlan)="onOpenNewPlan()"
+      (selectPlan)="onOpenPlan($event)"
+      (deletePlan)="onDeletePlan($event)">
+    </app-plans-sidebar>
+  </aside>
+
+  <main class="main">
+    <header class="page-header">
+      <div class="page-header__title-group">
+        <button
+          type="button"
+          class="menu-btn"
+          (click)="toggleSidebar()"
+          aria-label="Open plans menu"
+          [attr.aria-expanded]="isSidebarOpen">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+
+        <div>
+          <h1>{{ dictionary().pageTitle }}</h1>
+          <p>{{ dictionary().pageSubtitle }}</p>
+        </div>
+      </div>
+
+      <div class="language-area">
+        <div class="language-boxes" aria-label="Language selector">
+          @for (language of availableLanguages; track language.code) {
+            <button
+              type="button"
+              class="language-box"
+              [class.language-box--active]="currentLanguage() === language.code"
+              (click)="setLanguage(language.code)">
+              {{ language.code.toUpperCase() }}
+            </button>
+          }
+        </div>
+
+        <select
+          class="language-select"
+          [value]="currentLanguage()"
+          (change)="setLanguage(($any($event.target)).value)"
+          aria-label="Language selector">
+          @for (language of availableLanguages; track language.code) {
+            <option [value]="language.code">
+              {{ language.code.toUpperCase() }}
+            </option>
+          }
+        </select>
+      </div>
+    </header>
+
+    @if (messages.length === 0) {
+      <section class="hero">
+        <h2>{{ dictionary().heroTitle }}</h2>
+        <p>{{ dictionary().heroDescription }}</p>
+
+        <div class="options">
+          @for (option of dictionary().options; track option.title) {
+            <app-option-card
+              [icon]="option.icon"
+              [title]="option.title"
+              [description]="option.description"
+              [borderColor]="option.borderColor">
+            </app-option-card>
+          }
+        </div>
+      </section>
+    }
+
+    @if (messages.length > 0) {
+      <section class="chat-thread">
+        @for (message of messages; track $index) {
+          <div class="chat-bubble" [class.chat-bubble--user]="message.role === 'user'">
+            <div class="chat-bubble__role">
+              {{ message.role === 'user' ? 'You' : 'Chatbot' }}
+            </div>
+
+            <div class="chat-bubble__text">
+              {{ message.text }}
+            </div>
+
+            @if (message.sources?.length) {
+              <div class="chat-bubble__sources">
+                <strong>Sources:</strong>
+                <ul>
+                  @for (source of message.sources!; track $index) {
+                    <li>
+                      {{ source.source_type }} · {{ source.source }}
+                      @if (source.page) {
+                        <span>(Page {{ source.page }})</span>
+                      }
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+
+            @if (message.usedTools?.length) {
+              <div class="chat-bubble__tools">
+                <strong>Tools used:</strong>
+                {{ message.usedTools?.join(', ') }}
+              </div>
+            }
+          </div>
+        }
+
+        @if (isloading) {
+          <div class="chat-bubble">
+            <div class="chat-bubble__role">Chatbot</div>
+            <div class="chat-bubble__text">Thinking...</div>
+          </div>
+        }
+
+        @if (errorMessage) {
+          <div class="chat-error">{{ errorMessage }}</div>
+        }
+      </section>
+    }
+
+    <footer class="composer">
+      <app-chat-input (sendMessage)="onSendMessage($event)"></app-chat-input>
+    </footer>
+  </main>
+</div>

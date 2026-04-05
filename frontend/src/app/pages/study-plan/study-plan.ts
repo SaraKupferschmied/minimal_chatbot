@@ -1,0 +1,403 @@
+import { CommonModule } from '@angular/common';
+import { Component, computed, inject, signal } from '@angular/core';
+import { ActivatedRoute, NavigationEnd, Router, RouterModule } from '@angular/router';
+import { FormsModule } from '@angular/forms';
+import { filter, finalize } from 'rxjs';
+import { PlansSidebarComponent } from '../../components/plans-sidebar/plans-sidebar';
+import {
+  PlannerApiService,
+  PlannerCourseOffering,
+  PlannerProgram,
+  PlannerSemester
+} from '../../services/planner-api.service';
+import {
+  StudyPlanCourseSelection,
+  StudyPlanService
+} from '../../services/study-plan.service';
+import { LanguageService } from '../../services/language.service';
+
+@Component({
+  selector: 'app-study-plan-page',
+  standalone: true,
+  imports: [CommonModule, RouterModule, FormsModule, PlansSidebarComponent],
+  templateUrl: './study-plan.html',
+  styleUrl: './study-plan.css'
+})
+export class StudyPlanPageComponent {
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  private readonly plannerApi = inject(PlannerApiService);
+  private readonly languageService = inject(LanguageService);
+  readonly studyPlanService = inject(StudyPlanService);
+
+  readonly weekdays = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'] as const;
+  readonly hourLabels = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00'];
+
+  readonly currentPath = signal(this.router.url);
+  readonly currentPlanId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
+  readonly isCreateMode = computed(() => this.currentPath().includes('/plans/new'));
+  readonly activePlan = computed(() => this.studyPlanService.getPlanById(this.currentPlanId()));
+
+  readonly editMode = signal(false);
+  readonly title = signal('');
+  readonly selectedSemesterId = signal('');
+  readonly selectedProgramIds = signal<number[]>([]);
+  readonly selectedOfferingIds = signal<number[]>([]);
+  readonly courseSearch = signal('');
+  readonly programSearch = signal('');
+
+  readonly semesters = signal<PlannerSemester[]>([]);
+  readonly programs = signal<PlannerProgram[]>([]);
+  readonly availableCourseOfferings = signal<PlannerCourseOffering[]>([]);
+
+  readonly isLoadingSemesters = signal(false);
+  readonly isLoadingPrograms = signal(false);
+  readonly isLoadingCourses = signal(false);
+  readonly plannerError = signal('');
+
+  readonly selectedProgramIdStrings = computed(() =>
+    this.selectedProgramIds().map((id) => String(id))
+  );
+
+  readonly selectedProgramNames = computed(() =>
+    this.programs()
+      .filter((program) => this.selectedProgramIds().includes(program.program_id))
+      .map((program) => this.programLabel(program))
+  );
+
+  readonly selectedPlanOfferings = computed<StudyPlanCourseSelection[]>(() =>
+    this.activePlan()?.selectedOfferings ?? []
+  );
+
+  readonly selectedEditOfferings = computed<StudyPlanCourseSelection[]>(() =>
+    this.selectedPlanOfferings().filter((offering) =>
+      this.selectedOfferingIds().includes(offering.id)
+    )
+  );
+
+  readonly filteredPrograms = computed(() => {
+    const query = this.programSearch().trim().toLowerCase();
+    if (!query) {
+      return this.programs();
+    }
+
+    return this.programs().filter((program) => {
+      const label = this.programLabel(program).toLowerCase();
+      return (
+        label.includes(query) ||
+        (program.degree_level ?? '').toLowerCase().includes(query)
+      );
+    });
+  });
+
+  readonly filteredCourses = computed(() => {
+    const query = this.courseSearch().trim().toLowerCase();
+    const selectedProgramIds = new Set(this.selectedProgramIds());
+
+    return this.availableCourseOfferings().filter((course) => {
+      const matchesSearch =
+        !query ||
+        [
+          course.course_name ?? '',
+          course.code,
+          course.offering_type ?? '',
+          course.day_time_info ?? '',
+          ...course.teaching_languages,
+          ...course.programs.map((program) => program.program_name ?? '')
+        ].some((value) => value.toLowerCase().includes(query));
+
+      const matchesPrograms =
+        selectedProgramIds.size === 0 ||
+        course.programs.some((program) => selectedProgramIds.has(program.program_id));
+
+      return matchesSearch && matchesPrograms;
+    });
+  });
+
+  constructor() {
+    this.router.events
+      .pipe(filter((event) => event instanceof NavigationEnd))
+      .subscribe(() => {
+        this.currentPath.set(this.router.url);
+        this.currentPlanId.set(this.route.snapshot.paramMap.get('id'));
+        this.syncStateFromRoute();
+      });
+
+    this.syncStateFromRoute();
+  }
+
+  openPlan(planId: string): void {
+    void this.router.navigate(['/plans', planId]);
+  }
+
+  createNewPlan(): void {
+    void this.router.navigate(['/plans/new']);
+  }
+
+  deletePlan(planId: string): void {
+    this.studyPlanService.deletePlan(planId);
+
+    if (this.currentPlanId() === planId) {
+      void this.router.navigate(['/']);
+    }
+  }
+
+  goHome(): void {
+    void this.router.navigate(['/']);
+  }
+
+  startEditing(): void {
+    const plan = this.activePlan();
+    if (!plan) {
+      return;
+    }
+
+    this.selectedOfferingIds.set(plan.selectedOfferings?.map((offering) => offering.id) ?? []);
+    this.editMode.set(true);
+  }
+
+  saveEdit(): void {
+    const planId = this.currentPlanId();
+    if (!planId) {
+      return;
+    }
+
+    const plan = this.activePlan();
+    if (!plan) {
+      return;
+    }
+
+    const selectedNames = (plan.selectedOfferings ?? [])
+      .filter((offering) => this.selectedOfferingIds().includes(offering.id))
+      .map((offering) => offering.name);
+
+    this.studyPlanService.updatePlanCourses(planId, selectedNames);
+    this.editMode.set(false);
+  }
+
+  removeSelectedOffering(offeringId: number): void {
+    this.selectedOfferingIds.set(
+      this.selectedOfferingIds().filter((id) => id !== offeringId)
+    );
+  }
+
+  onSemesterChange(semId: string): void {
+    this.selectedSemesterId.set(semId);
+    this.selectedOfferingIds.set([]);
+    this.availableCourseOfferings.set([]);
+
+    if (semId && this.selectedProgramIds().length > 0) {
+      this.loadCourses();
+    }
+  }
+
+  onProgramsSelect(rawValues: string[] | string | null): void {
+    const values = Array.isArray(rawValues)
+      ? rawValues
+      : rawValues != null
+        ? [rawValues]
+        : [];
+
+    const ids = values
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value));
+
+    this.selectedProgramIds.set(ids);
+    this.selectedOfferingIds.set([]);
+    this.availableCourseOfferings.set([]);
+
+    if (ids.length > 0 && this.selectedSemesterId()) {
+      this.loadCourses();
+    }
+  }
+
+  toggleCourse(offeringId: number): void {
+    const selected = this.selectedOfferingIds();
+    const exists = selected.includes(offeringId);
+
+    this.selectedOfferingIds.set(
+      exists
+        ? selected.filter((id) => id !== offeringId)
+        : [...selected, offeringId]
+    );
+  }
+
+  createPlan(): void {
+    const semesterId = this.selectedSemesterId();
+    const programIds = this.selectedProgramIds();
+    const offerings = this.availableCourseOfferings().filter((course) =>
+      this.selectedOfferingIds().includes(course.offering_id)
+    );
+
+    if (!semesterId || programIds.length === 0 || offerings.length === 0) {
+      return;
+    }
+
+    const title = this.title().trim() || this.suggestedPlanTitle();
+    const selectedPrograms = this.programs().filter((program) =>
+      programIds.includes(program.program_id)
+    );
+
+    const created = this.studyPlanService.createPlanFromOfferings({
+      title,
+      semesterId,
+      programs: selectedPrograms,
+      offerings
+    });
+
+    void this.router.navigate(['/plans', created.id]);
+  }
+
+  isCourseSelected(offeringId: number): boolean {
+    return this.selectedOfferingIds().includes(offeringId);
+  }
+
+  programLabel(program: PlannerProgram): string {
+    const name =
+      program.display_name ??
+      program.name_de ??
+      program.name_en ??
+      program.name_fr ??
+      `Programm ${program.program_id}`;
+
+    const ectsPart = program.total_ects ? ` · ${program.total_ects} ECTS` : '';
+    const degreePart = program.degree_level ? ` · ${program.degree_level}` : '';
+
+    return `${name}${ectsPart}${degreePart}`;
+  }
+
+  offeringTag(course: PlannerCourseOffering): string {
+    return (course.mandatory_for?.length ?? 0) > 0 ? 'Pflicht' : 'Wahl';
+  }
+
+  offeringPrograms(course: PlannerCourseOffering): string {
+    return course.programs
+      .map((program) => program.program_name)
+      .filter(Boolean)
+      .join(', ');
+  }
+
+  offeringLanguages(course: PlannerCourseOffering): string {
+    return course.teaching_languages.join(', ');
+  }
+
+  plannerCanCreate(): boolean {
+    return (
+      !!this.selectedSemesterId() &&
+      this.selectedProgramIds().length > 0 &&
+      this.selectedOfferingIds().length > 0 &&
+      !this.isLoadingCourses()
+    );
+  }
+
+  topPosition(startTime: string): number {
+    const [hours, minutes] = startTime.split(':').map(Number);
+    return ((((hours - 8) * 60) + minutes) / 60) * 80;
+  }
+
+  blockHeight(startTime: string, endTime: string): number {
+    const [startHours, startMinutes] = startTime.split(':').map(Number);
+    const [endHours, endMinutes] = endTime.split(':').map(Number);
+    const duration = (endHours * 60 + endMinutes) - (startHours * 60 + startMinutes);
+    return (duration / 60) * 80;
+  }
+
+  private syncStateFromRoute(): void {
+    if (this.isCreateMode()) {
+      this.editMode.set(false);
+      this.title.set('');
+      this.programSearch.set('');
+      this.courseSearch.set('');
+      this.selectedOfferingIds.set([]);
+      this.plannerError.set('');
+
+      if (this.semesters().length === 0) {
+        this.loadSemesters();
+      }
+
+      if (this.programs().length === 0) {
+        this.loadPrograms();
+      }
+
+      return;
+    }
+
+    const plan = this.activePlan();
+    if (plan) {
+      this.selectedOfferingIds.set(plan.selectedOfferings?.map((offering) => offering.id) ?? []);
+      this.editMode.set(false);
+    }
+  }
+
+  private loadSemesters(): void {
+    this.isLoadingSemesters.set(true);
+    this.plannerError.set('');
+
+    this.plannerApi.getSemesters()
+      .pipe(finalize(() => this.isLoadingSemesters.set(false)))
+      .subscribe({
+        next: (semesters) => {
+          this.semesters.set(semesters);
+
+          if (!this.selectedSemesterId() && semesters.length > 0) {
+            this.selectedSemesterId.set(semesters[0].sem_id);
+          }
+        },
+        error: () => {
+          this.plannerError.set('Semester konnten nicht geladen werden.');
+        }
+      });
+  }
+
+  private loadPrograms(): void {
+    this.isLoadingPrograms.set(true);
+    this.plannerError.set('');
+
+    this.plannerApi.getPrograms(this.languageService.currentLanguage())
+      .pipe(finalize(() => this.isLoadingPrograms.set(false)))
+      .subscribe({
+        next: (programs) => {
+          this.programs.set(programs);
+        },
+        error: () => {
+          this.plannerError.set('Studienprogramme konnten nicht geladen werden.');
+        }
+      });
+  }
+
+  private loadCourses(): void {
+    const semesterId = this.selectedSemesterId();
+    const programIds = this.selectedProgramIds();
+
+    if (!semesterId || programIds.length === 0) {
+      this.availableCourseOfferings.set([]);
+      return;
+    }
+
+    this.isLoadingCourses.set(true);
+    this.plannerError.set('');
+
+    this.plannerApi.getCourses(
+      semesterId,
+      programIds,
+      this.languageService.currentLanguage()
+    )
+      .pipe(finalize(() => this.isLoadingCourses.set(false)))
+      .subscribe({
+        next: (response) => {
+          this.availableCourseOfferings.set(response.courses ?? []);
+        },
+        error: () => {
+          this.plannerError.set('Kursangebote konnten nicht geladen werden.');
+        }
+      });
+  }
+
+  private suggestedPlanTitle(): string {
+    const semester = this.semesters().find(
+      (entry) => entry.sem_id === this.selectedSemesterId()
+    );
+
+    return semester ? semester.label : `Semesterplan ${new Date().getFullYear()}`;
+  }
+}
