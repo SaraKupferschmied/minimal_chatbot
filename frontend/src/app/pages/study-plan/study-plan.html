@@ -62,10 +62,13 @@
           <select
             class="text-input select-input multi-select"
             multiple
-            [ngModel]="selectedProgramIdStrings()"
-            (ngModelChange)="onProgramsSelect($event)">
+            (change)="onProgramsChange($event)">
             @for (program of filteredPrograms(); track program.program_id) {
-              <option [value]="program.program_id">{{ programLabel(program) }}</option>
+              <option
+                [value]="program.program_id"
+                [selected]="isProgramSelected(program.program_id)">
+                {{ programLabel(program) }}
+              </option>
             }
           </select>
           <p class="hint-text">Mehrfachauswahl mit Ctrl/Cmd oder Shift.</p>

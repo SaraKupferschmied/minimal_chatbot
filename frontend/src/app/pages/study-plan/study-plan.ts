@@ -55,10 +55,6 @@ export class StudyPlanPageComponent {
   readonly isLoadingCourses = signal(false);
   readonly plannerError = signal('');
 
-  readonly selectedProgramIdStrings = computed(() =>
-    this.selectedProgramIds().map((id) => String(id))
-  );
-
   readonly selectedProgramNames = computed(() =>
     this.programs()
       .filter((program) => this.selectedProgramIds().includes(program.program_id))
@@ -92,9 +88,10 @@ export class StudyPlanPageComponent {
 
   readonly filteredCourses = computed(() => {
     const query = this.courseSearch().trim().toLowerCase();
-    const selectedProgramIds = new Set(this.selectedProgramIds());
 
     return this.availableCourseOfferings().filter((course) => {
+      const programRefs = this.getCourseProgramRefs(course);
+
       const matchesSearch =
         !query ||
         [
@@ -103,12 +100,10 @@ export class StudyPlanPageComponent {
           course.offering_type ?? '',
           course.day_time_info ?? '',
           ...course.teaching_languages,
-          ...course.programs.map((program) => program.program_name ?? '')
+          ...programRefs.map((program) => program.program_name ?? '')
         ].some((value) => value.toLowerCase().includes(query));
 
-      const matchesPrograms =
-        selectedProgramIds.size === 0 ||
-        course.programs.some((program) => selectedProgramIds.has(program.program_id));
+      const matchesPrograms = this.courseMatchesSelectedPrograms(course);
 
       return matchesSearch && matchesPrograms;
     });
@@ -191,15 +186,11 @@ export class StudyPlanPageComponent {
     }
   }
 
-  onProgramsSelect(rawValues: string[] | string | null): void {
-    const values = Array.isArray(rawValues)
-      ? rawValues
-      : rawValues != null
-        ? [rawValues]
-        : [];
+  onProgramsChange(event: Event): void {
+    const select = event.target as HTMLSelectElement;
 
-    const ids = values
-      .map((value) => Number(value))
+    const ids = Array.from(select.selectedOptions)
+      .map((option) => Number(option.value))
       .filter((value) => Number.isInteger(value));
 
     this.selectedProgramIds.set(ids);
@@ -252,6 +243,10 @@ export class StudyPlanPageComponent {
     return this.selectedOfferingIds().includes(offeringId);
   }
 
+  isProgramSelected(programId: number): boolean {
+    return this.selectedProgramIds().includes(programId);
+  }
+
   programLabel(program: PlannerProgram): string {
     const name =
       program.display_name ??
@@ -271,7 +266,7 @@ export class StudyPlanPageComponent {
   }
 
   offeringPrograms(course: PlannerCourseOffering): string {
-    return course.programs
+    return this.getCourseProgramRefs(course)
       .map((program) => program.program_name)
       .filter(Boolean)
       .join(', ');
@@ -300,6 +295,45 @@ export class StudyPlanPageComponent {
     const [endHours, endMinutes] = endTime.split(':').map(Number);
     const duration = (endHours * 60 + endMinutes) - (startHours * 60 + startMinutes);
     return (duration / 60) * 80;
+  }
+
+  private getCourseProgramRefs(course: PlannerCourseOffering) {
+    const refs = [
+      ...(course.programs ?? []),
+      ...(course.mandatory_for ?? []),
+      ...(course.elective_for ?? [])
+    ];
+
+    const byId = new Map<number, typeof refs[number]>();
+
+    for (const ref of refs) {
+      if (!byId.has(ref.program_id)) {
+        byId.set(ref.program_id, ref);
+        continue;
+      }
+
+      const existing = byId.get(ref.program_id)!;
+      byId.set(ref.program_id, {
+        ...existing,
+        ...ref,
+        program_name: existing.program_name ?? ref.program_name,
+        course_type: existing.course_type ?? ref.course_type
+      });
+    }
+
+    return Array.from(byId.values());
+  }
+
+  private courseMatchesSelectedPrograms(course: PlannerCourseOffering): boolean {
+    const selectedProgramIds = new Set(this.selectedProgramIds());
+
+    if (selectedProgramIds.size === 0) {
+      return true;
+    }
+
+    return this.getCourseProgramRefs(course).some((program) =>
+      selectedProgramIds.has(program.program_id)
+    );
   }
 
   private syncStateFromRoute(): void {

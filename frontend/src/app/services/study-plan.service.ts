@@ -1,6 +1,10 @@
-import { Inject, Injectable, PLATFORM_ID, computed, effect, signal } from '@angular/core';
+import { Inject, Injectable, PLATFORM_ID, computed, signal } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import { PlannerCourseOffering, PlannerProgram } from './planner-api.service';
+import {
+  PlannerCourseOffering,
+  PlannerProgram,
+  PlannerProgramRef
+} from './planner-api.service';
 
 export type Weekday = 'Montag' | 'Dienstag' | 'Mittwoch' | 'Donnerstag' | 'Freitag';
 
@@ -63,16 +67,7 @@ export class StudyPlanService {
 
   constructor(@Inject(PLATFORM_ID) platformId: object) {
     this.isBrowser = isPlatformBrowser(platformId);
-
     this.planState.set(this.loadPlansFromStorage());
-
-    effect(() => {
-      if (!this.isBrowser) {
-        return;
-      }
-
-      localStorage.setItem(this.storageKey, JSON.stringify(this.planState()));
-    });
   }
 
   getPlanById(id: string | null | undefined): StudyPlan | undefined {
@@ -81,6 +76,7 @@ export class StudyPlanService {
 
   deletePlan(id: string): void {
     this.planState.update((plans) => plans.filter((plan) => plan.id !== id));
+    this.persistPlans();
   }
 
   updatePlanCourses(id: string, courses: string[]): void {
@@ -98,12 +94,15 @@ export class StudyPlanService {
           ...plan,
           courses,
           selectedOfferings: filteredOfferings,
-          timetable: filteredOfferings && filteredOfferings.length > 0
-            ? this.buildTimetableFromOfferings(filteredOfferings)
-            : this.buildTimetableFromCourseNames(courses)
+          timetable:
+            filteredOfferings && filteredOfferings.length > 0
+              ? this.buildTimetableFromOfferings(filteredOfferings)
+              : this.buildTimetableFromCourseNames(courses)
         };
       })
     );
+
+    this.persistPlans();
   }
 
   createPlanFromOfferings(payload: {
@@ -138,11 +137,25 @@ export class StudyPlanService {
     };
 
     this.planState.update((plans) => [createdPlan, ...plans]);
+    this.persistPlans();
     return createdPlan;
   }
 
   clearAllPlans(): void {
     this.planState.set([]);
+    this.persistPlans();
+  }
+
+  private persistPlans(): void {
+    if (!this.isBrowser) {
+      return;
+    }
+
+    try {
+      localStorage.setItem(this.storageKey, JSON.stringify(this.planState()));
+    } catch {
+      // ignore storage errors
+    }
   }
 
   private loadPlansFromStorage(): StudyPlan[] {
@@ -175,7 +188,7 @@ export class StudyPlanService {
     offering: PlannerCourseOffering,
     semesterId: string
   ): StudyPlanCourseSelection {
-    const programRefs = offering.programs ?? [];
+    const programRefs = this.getUniqueProgramRefs(offering);
 
     return {
       id: offering.offering_id,
@@ -194,6 +207,33 @@ export class StudyPlanService {
         type: program.course_type === 'Mandatory' ? 'Pflicht' : 'Wahl'
       }))
     };
+  }
+
+  private getUniqueProgramRefs(offering: PlannerCourseOffering): PlannerProgramRef[] {
+    const refs = [
+      ...(offering.programs ?? []),
+      ...(offering.mandatory_for ?? []),
+      ...(offering.elective_for ?? [])
+    ];
+
+    const byId = new Map<number, PlannerProgramRef>();
+
+    for (const ref of refs) {
+      if (!byId.has(ref.program_id)) {
+        byId.set(ref.program_id, ref);
+        continue;
+      }
+
+      const existing = byId.get(ref.program_id)!;
+      byId.set(ref.program_id, {
+        ...existing,
+        ...ref,
+        program_name: existing.program_name ?? ref.program_name,
+        course_type: existing.course_type ?? ref.course_type
+      });
+    }
+
+    return Array.from(byId.values());
   }
 
   private buildTimetableFromOfferings(
