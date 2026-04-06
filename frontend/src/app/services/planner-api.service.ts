@@ -61,6 +61,37 @@ export interface PlannerCoursesResponse {
   courses: PlannerCourseOffering[];
 }
 
+export interface PlannerOfferingSession {
+  session_id: number;
+  offering_id: number;
+  date: string;
+  weekday: string;
+  start_time: string | null;
+  end_time: string | null;
+  room_id: string | null;
+  unit_type: string | null;
+}
+
+export interface PlannerProfessor {
+  prof_id: number;
+  display_name: string;
+  email: string | null;
+}
+
+export interface PlannerOfferingDetail {
+  offering_id: number;
+  sem_id: string;
+  offering_type: string | null;
+  day_time_info: string | null;
+  link_course_catalogue: string | null;
+  code: string;
+  course_name: string | null;
+  ects: number | null;
+  teaching_languages: string[];
+  professors: PlannerProfessor[];
+  sessions: PlannerOfferingSession[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class PlannerApiService {
   private readonly http = inject(HttpClient);
@@ -88,5 +119,9 @@ export class PlannerApiService {
       params = params.append('program_ids', String(programId));
     }
     return this.http.get<PlannerCoursesResponse>(`${this.baseUrl}/planner/courses`, { params });
+  }
+
+  getOfferingDetail(offeringId: number): Observable<PlannerOfferingDetail> {
+    return this.http.get<PlannerOfferingDetail>(`${this.baseUrl}/planner/offerings/${offeringId}`);
   }
 }

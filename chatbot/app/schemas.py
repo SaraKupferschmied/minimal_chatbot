@@ -2,10 +2,12 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Literal
 
 LanguageCode = Literal["de", "en", "fr"]
+RunMode = Literal["auto", "rag", "tool", "hybrid"]
 
 class AskRequest(BaseModel):
     question: str = Field(..., min_length=1)
     language: Optional[LanguageCode] = None
+    run_mode: Optional[RunMode] = "auto"
     session_id: Optional[str] = None
 
 class SourceSnippet(BaseModel):

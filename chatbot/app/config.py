@@ -17,7 +17,7 @@ class Settings(BaseModel):
     ollama_model: str = os.getenv('OLLAMA_MODEL', 'mistral')
     ollama_embedding_model: str = os.getenv('OLLAMA_EMBEDDING_MODEL', 'nomic-embed-text')
     
-    k: int = int(os.getenv('RETRIEVAL_K', '4'))
+    k: int = int(os.getenv('RETRIEVAL_K', '8'))
 
     backend_api_base: str = os.getenv('BACKEND_API_BASE', 'http://localhost:3002')
     studyplans_parsed_override: str | None = os.getenv('STUDYPLANS_PARSED_DIR')

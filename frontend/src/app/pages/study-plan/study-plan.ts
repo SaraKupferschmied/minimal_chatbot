@@ -8,7 +8,8 @@ import {
   PlannerApiService,
   PlannerCourseOffering,
   PlannerProgram,
-  PlannerSemester
+  PlannerSemester,
+  PlannerOfferingDetail
 } from '../../services/planner-api.service';
 import {
   StudyPlanCourseSelection,
@@ -31,7 +32,7 @@ export class StudyPlanPageComponent {
   readonly studyPlanService = inject(StudyPlanService);
 
   readonly weekdays = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'] as const;
-  readonly hourLabels = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00'];
+  readonly hourLabels = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'];
 
   readonly currentPath = signal(this.router.url);
   readonly currentPlanId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
@@ -54,6 +55,10 @@ export class StudyPlanPageComponent {
   readonly isLoadingPrograms = signal(false);
   readonly isLoadingCourses = signal(false);
   readonly plannerError = signal('');
+
+  readonly selectedCalendarEntry = signal<any | null>(null);
+  readonly selectedOfferingDetail = signal<PlannerOfferingDetail | null>(null);
+  readonly isLoadingOfferingDetail = signal(false);
 
   readonly selectedProgramNames = computed(() =>
     this.programs()
@@ -276,6 +281,40 @@ export class StudyPlanPageComponent {
     return course.teaching_languages.join(', ');
   }
 
+    openCalendarEntry(entry: any): void {
+    this.selectedCalendarEntry.set(entry);
+    this.selectedOfferingDetail.set(null);
+
+    if (!entry.offeringId) {
+      return;
+    }
+
+    this.isLoadingOfferingDetail.set(true);
+    this.plannerApi.getOfferingDetail(entry.offeringId)
+      .pipe(finalize(() => this.isLoadingOfferingDetail.set(false)))
+      .subscribe({
+        next: (detail) => this.selectedOfferingDetail.set(detail),
+        error: () => this.selectedOfferingDetail.set(null)
+      });
+  }
+
+  closeCalendarEntry(): void {
+    this.selectedCalendarEntry.set(null);
+    this.selectedOfferingDetail.set(null);
+  }
+
+  displayCardTitle(entry: any): string {
+    return entry.courseName;
+  }
+
+  displayCardCode(entry: any): string {
+    return entry.courseCode ?? '';
+  }
+
+  displayCardTime(entry: any): string {
+    return `${entry.startTime} - ${entry.endTime}`;
+  }
+
   plannerCanCreate(): boolean {
     return (
       !!this.selectedSemesterId() &&
@@ -287,14 +326,14 @@ export class StudyPlanPageComponent {
 
   topPosition(startTime: string): number {
     const [hours, minutes] = startTime.split(':').map(Number);
-    return ((((hours - 8) * 60) + minutes) / 60) * 80;
+    return (((hours - 8) * 60) + minutes);
   }
 
   blockHeight(startTime: string, endTime: string): number {
     const [startHours, startMinutes] = startTime.split(':').map(Number);
     const [endHours, endMinutes] = endTime.split(':').map(Number);
     const duration = (endHours * 60 + endMinutes) - (startHours * 60 + startMinutes);
-    return (duration / 60) * 80;
+    return duration;
   }
 
   private getCourseProgramRefs(course: PlannerCourseOffering) {
@@ -433,5 +472,139 @@ export class StudyPlanPageComponent {
     );
 
     return semester ? semester.label : `Semesterplan ${new Date().getFullYear()}`;
+  }
+
+    private timeToMinutes(value: string): number {
+    const [h, m] = value.split(':').map(Number);
+    return h * 60 + m;
+  }
+
+  private overlaps(a: { startTime: string; endTime: string }, b: { startTime: string; endTime: string }): boolean {
+    const aStart = this.timeToMinutes(a.startTime);
+    const aEnd = this.timeToMinutes(a.endTime);
+    const bStart = this.timeToMinutes(b.startTime);
+    const bEnd = this.timeToMinutes(b.endTime);
+    return aStart < bEnd && bStart < aEnd;
+  }
+
+  private layoutEntries(entries: any[]): Array<any & { layoutIndex: number; layoutColumns: number }> {
+    const sorted = [...entries].sort((a, b) => {
+      const diff = this.timeToMinutes(a.startTime) - this.timeToMinutes(b.startTime);
+      return diff !== 0 ? diff : this.timeToMinutes(a.endTime) - this.timeToMinutes(b.endTime);
+    });
+
+    const result: Array<any & { layoutIndex: number; layoutColumns: number }> = [];
+    const groups: Array<Array<any & { layoutIndex: number; layoutColumns: number }>> = [];
+
+    for (const entry of sorted) {
+      let placed = false;
+
+      for (const group of groups) {
+        if (group.some((existing) => this.overlaps(existing, entry))) {
+          const used = new Set(
+            group
+              .filter((existing) => this.overlaps(existing, entry))
+              .map((existing) => existing.layoutIndex)
+          );
+
+          let layoutIndex = 0;
+          while (used.has(layoutIndex)) {
+            layoutIndex++;
+          }
+
+          const enriched = { ...entry, layoutIndex, layoutColumns: 1 };
+          group.push(enriched);
+          placed = true;
+          break;
+        }
+      }
+
+      if (!placed) {
+        groups.push([{ ...entry, layoutIndex: 0, layoutColumns: 1 }]);
+      }
+    }
+
+    for (const group of groups) {
+      const columns = Math.max(...group.map((entry) => entry.layoutIndex)) + 1;
+      for (const entry of group) {
+        entry.layoutColumns = columns;
+        result.push(entry);
+      }
+    }
+
+    return result;
+  }
+
+  laidOutEntries(day: typeof this.weekdays[number]): Array<any> {
+    const entries = this.activePlan()?.timetable?.[day] ?? [];
+    return this.layoutEntries(entries);
+  }
+
+  cardWidth(entry: { layoutColumns: number }): string {
+    return `calc((100% - 16px) / ${entry.layoutColumns})`;
+  }
+
+  cardLeft(entry: { layoutIndex: number; layoutColumns: number }): string {
+    return `calc(8px + ${entry.layoutIndex} * ((100% - 16px) / ${entry.layoutColumns}))`;
+  }
+
+  professorNames(): string {
+    const detail = this.selectedOfferingDetail();
+    if (detail?.professors?.length) {
+      return detail.professors.map((p) => p.display_name).join(', ');
+    }
+
+    const entry = this.selectedCalendarEntry();
+    if (entry?.professors?.length) {
+      return entry.professors.join(', ');
+    }
+
+    return '';
+  }
+
+  weeklyEntries(day: typeof this.weekdays[number]): Array<any> {
+    const entries = this.activePlan()?.timetable?.[day] ?? [];
+    return this.layoutEntries(
+      entries.filter((entry) => (entry.offeringType ?? '').toLowerCase() !== 'block')
+    );
+  }
+
+  blockEntries(): any[] {
+    const timetable = this.activePlan()?.timetable;
+    if (!timetable) {
+      return [];
+    }
+
+    const allEntries = this.weekdays.flatMap((day) => timetable[day] ?? []);
+    const seen = new Map<string, any>();
+
+    for (const entry of allEntries) {
+      if ((entry.offeringType ?? '').toLowerCase() !== 'block') {
+        continue;
+      }
+
+      const key = String(entry.offeringId ?? `${entry.courseCode}-${entry.courseName}`);
+      if (!seen.has(key)) {
+        seen.set(key, entry);
+      }
+    }
+
+    return Array.from(seen.values());
+  }
+
+  blockSessionsSummary(entry: any): string {
+    const sessions = entry.sessions ?? [];
+    if (!sessions.length) {
+      return 'Einzelsessions im Detail anzeigen';
+    }
+
+    const first = sessions[0];
+    const last = sessions[sessions.length - 1];
+
+    if (first?.date && last?.date) {
+      return `${sessions.length} Sessions · ${first.date} bis ${last.date}`;
+    }
+
+    return `${sessions.length} Sessions`;
   }
 }

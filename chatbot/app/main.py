@@ -5,7 +5,6 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from .schemas import AskRequest, AskResponse
-from .ollama_rag import build_or_load_index_for
 from .orchestrator import answer_question
 from .config import settings
 from .session_state import empty_session_state
@@ -45,21 +44,13 @@ def startup():
     DB_REGL = None
 
     try:
-        DB_STUDY = build_or_load_index_for(
-            "studyplans",
-            settings.studyplans_index,
-            force_rebuild=False,
-        )
+        DB_STUDY = build_index_for("studyplans", force_rebuild=False)
         print("[startup] studyplans loaded")
     except Exception as e:
         print("[startup] studyplans failed:", repr(e))
 
     try:
-        DB_REGL = build_or_load_index_for(
-            "reglementations",
-            settings.reglementations_index,
-            force_rebuild=False,
-        )
+        DB_REGL = build_index_for("reglementations", force_rebuild=False)
         print("[startup] reglementations loaded")
     except Exception as e:
         print("[startup] reglementations failed:", repr(e))
@@ -125,6 +116,7 @@ def ask(payload: AskRequest) -> AskResponse:
         db_regl=DB_REGL,
         language=payload.language,
         session_state=session_state,
+        run_mode=payload.run_mode,
     )
 
     SESSION_STORE[session_id] = result.get("session_state", session_state)

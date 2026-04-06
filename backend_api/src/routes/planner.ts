@@ -66,6 +66,39 @@ type SessionRow = {
   unit_type: string | null;
 };
 
+type OfferingProfessorRow = {
+  prof_id: number;
+  title: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+};
+
+type OfferingLanguageRow = {
+  description: string;
+};
+
+type OfferingDetailRow = {
+  offering_id: number;
+  sem_id: string;
+  offering_type: string | null;
+  day_time_info: string | null;
+  link_course_catalogue: string | null;
+  code: string;
+  course_name: string | null;
+  ects: number | null;
+};
+
+type OfferingSessionDetailRow = {
+  session_id: number;
+  offering_id: number;
+  date: string;
+  start_time: string | null;
+  end_time: string | null;
+  room_id: string | null;
+  unit_type: string | null;
+};
+
 type PlannerProgramsQuery = {
   locale?: "de" | "en" | "fr";
   degree_level?: "Bachelor" | "Master" | "Doctorate";
@@ -503,6 +536,168 @@ export async function plannerRoutes(app: FastifyInstance) {
         semester: semesterRows[0] ?? null,
         selected_programs: selectedPrograms,
         courses: rows,
+      };
+    }
+  );
+
+  app.get(
+    "/offerings/:offeringId",
+    {
+      schema: {
+        tags: ["Planner"],
+        summary: "Get full offering details including sessions and professors",
+        params: {
+          type: "object",
+          required: ["offeringId"],
+          properties: {
+            offeringId: { type: "integer" }
+          }
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              offering_id: { type: "integer" },
+              sem_id: { type: "string" },
+              offering_type: { type: ["string", "null"] },
+              day_time_info: { type: ["string", "null"] },
+              link_course_catalogue: { type: ["string", "null"] },
+              code: { type: "string" },
+              course_name: { type: ["string", "null"] },
+              ects: { type: ["number", "null"] },
+              teaching_languages: {
+                type: "array",
+                items: { type: "string" }
+              },
+              professors: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    prof_id: { type: "integer" },
+                    display_name: { type: "string" },
+                    email: { type: ["string", "null"] }
+                  }
+                }
+              },
+              sessions: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    session_id: { type: "integer" },
+                    offering_id: { type: "integer" },
+                    date: { type: "string" },
+                    weekday: { type: "string" },
+                    start_time: { type: ["string", "null"] },
+                    end_time: { type: ["string", "null"] },
+                    room_id: { type: ["string", "null"] },
+                    unit_type: { type: ["string", "null"] }
+                  }
+                }
+              }
+            }
+          },
+          404: {
+            type: "object",
+            properties: {
+              error: { type: "string" }
+            }
+          }
+        }
+      }
+    },
+    async (req, rep) => {
+      const offeringId = Number((req.params as { offeringId: string }).offeringId);
+
+      if (!Number.isInteger(offeringId)) {
+        return rep.code(404).send({ error: "Offering not found" });
+      }
+
+      const offeringRows = await query<OfferingDetailRow>(
+        `
+        SELECT
+          off.offering_id,
+          off.sem_id,
+          off.offering_type,
+          off.day_time_info,
+          off.link_course_catalogue,
+          c.code,
+          c.name AS course_name,
+          c.ects
+        FROM CourseOffering off
+        JOIN Course c
+          ON c.code = off.code
+        WHERE off.offering_id = $1
+        `,
+        [offeringId]
+      );
+
+      const offering = offeringRows[0];
+      if (!offering) {
+        return rep.code(404).send({ error: "Offering not found" });
+      }
+
+      const languages = await query<OfferingLanguageRow>(
+        `
+        SELECT DISTINCT l.description
+        FROM is_taught_in iti
+        JOIN Language l
+          ON l.lang_id = iti.lang_id
+        WHERE iti.offering_id = $1
+        ORDER BY l.description
+        `,
+        [offeringId]
+      );
+
+      const professors = await query<OfferingProfessorRow>(
+        `
+        SELECT DISTINCT
+          p.prof_id,
+          p.title,
+          p.first_name,
+          p.last_name,
+          p.email
+        FROM CourseOffering off
+        JOIN teaches t
+          ON t.code = off.code
+        JOIN Professor p
+          ON p.prof_id = t.prof_id
+        WHERE off.offering_id = $1
+        ORDER BY p.last_name, p.first_name
+        `,
+        [offeringId]
+      );
+
+      const sessions = await query<OfferingSessionDetailRow>(
+        `
+        SELECT
+          s.session_id,
+          s.offering_id,
+          s.date::text AS date,
+          s.start_time::text AS start_time,
+          s.end_time::text AS end_time,
+          s.room_id,
+          s.unit_type
+        FROM Session s
+        WHERE s.offering_id = $1
+        ORDER BY s.date, s.start_time, s.session_id
+        `,
+        [offeringId]
+      );
+
+      return {
+        ...offering,
+        teaching_languages: languages.map((row) => row.description),
+        professors: professors.map((prof) => ({
+          prof_id: prof.prof_id,
+          display_name: [prof.title, prof.first_name, prof.last_name].filter(Boolean).join(" "),
+          email: prof.email
+        })),
+        sessions: sessions.map((session) => ({
+          ...session,
+          weekday: new Date(session.date).toLocaleDateString("de-CH", { weekday: "long" })
+        }))
       };
     }
   );

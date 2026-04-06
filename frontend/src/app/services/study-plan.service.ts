@@ -8,6 +8,16 @@ import {
 
 export type Weekday = 'Montag' | 'Dienstag' | 'Mittwoch' | 'Donnerstag' | 'Freitag';
 
+export interface TimetableSession {
+  sessionId?: number;
+  date?: string;
+  weekday?: string;
+  startTime: string;
+  endTime: string;
+  room?: string | null;
+  unitType?: string | null;
+}
+
 export interface TimetableEntry {
   courseName: string;
   startTime: string;
@@ -18,6 +28,8 @@ export interface TimetableEntry {
   courseCode?: string;
   offeringType?: string | null;
   languages?: string[];
+  professors?: string[];
+  sessions?: TimetableSession[];
 }
 
 export interface StudyPlanProgramSelection {
@@ -43,6 +55,16 @@ export interface StudyPlanCourseSelection {
   offeringType?: string | null;
   dayTimeInfo?: string | null;
   linkCourseCatalogue?: string | null;
+  professors?: string[];
+  sessions?: Array<{
+    sessionId?: number;
+    date?: string;
+    weekday?: string;
+    startTime: string;
+    endTime: string;
+    room?: string | null;
+    unitType?: string | null;
+  }>;
 }
 
 export interface StudyPlan {
@@ -205,7 +227,9 @@ export class StudyPlanService {
         id: program.program_id,
         name: program.program_name ?? `Programm ${program.program_id}`,
         type: program.course_type === 'Mandatory' ? 'Pflicht' : 'Wahl'
-      }))
+      })),
+      professors: [], // to be filled in later when details are fetched
+      sessions: []
     };
   }
 
@@ -243,7 +267,29 @@ export class StudyPlanService {
     const timetable: Partial<Record<Weekday, TimetableEntry[]>> = {};
 
     offerings.forEach((offering, index) => {
+      const isBlock = (offering.offeringType ?? '').toLowerCase() === 'block';
       const parsed = this.parseDayTimeInfo(offering.dayTimeInfo ?? '');
+
+      if (isBlock) {
+        const blockEntry: TimetableEntry = {
+          courseName: offering.name,
+          startTime: '00:00',
+          endTime: '00:00',
+          location: 'Blockkurs',
+          color: colors[index % colors.length],
+          offeringId: offering.id,
+          courseCode: offering.code,
+          offeringType: offering.offeringType,
+          languages: offering.languages,
+          professors: offering.professors ?? [],
+          sessions: offering.sessions ?? []
+        };
+
+        const day: Weekday = 'Montag';
+        timetable[day] = [...(timetable[day] ?? []), blockEntry];
+        return;
+      }
+
       const day = parsed?.day ?? this.fallbackDay(index);
       const startTime = parsed?.startTime ?? this.fallbackStartTime(index);
       const endTime = parsed?.endTime ?? this.addTwoHours(startTime);
@@ -261,7 +307,9 @@ export class StudyPlanService {
         offeringId: offering.id,
         courseCode: offering.code,
         offeringType: offering.offeringType,
-        languages: offering.languages
+        languages: offering.languages,
+        professors: offering.professors ?? [],
+        sessions: offering.sessions ?? []
       };
 
       timetable[day] = [...(timetable[day] ?? []), entry].sort((a, b) =>
