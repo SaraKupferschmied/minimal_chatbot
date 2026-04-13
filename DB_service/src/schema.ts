@@ -147,10 +147,6 @@ async function run() {
       unit_type TEXT
     );`,
 
-    // debugging
-    `ALTER TABLE Session
-      ADD COLUMN IF NOT EXISTS unit_type TEXT;`,
-
     `CREATE UNIQUE INDEX IF NOT EXISTS uq_session_natural
       ON Session(offering_id, date, start_time, end_time, room_id, unit_type);`,
 

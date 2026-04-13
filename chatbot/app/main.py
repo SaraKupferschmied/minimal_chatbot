@@ -9,6 +9,8 @@ from .orchestrator import answer_question
 from .config import settings
 from .session_state import empty_session_state
 from .build_faiss import build_index_for
+from .build_faiss_llamaparse import build_index_for
+from .build_faiss_docling import build_index_for
 
 app = FastAPI(title="Regulations & Studyplan Chatbot (Ollama RAG)")
 
@@ -44,13 +46,13 @@ def startup():
     DB_REGL = None
 
     try:
-        DB_STUDY = build_index_for("studyplans", force_rebuild=False)
+        DB_STUDY = build_index_for("studyplans", parser=settings.rag_parser, force_rebuild=False)
         print("[startup] studyplans loaded")
     except Exception as e:
         print("[startup] studyplans failed:", repr(e))
 
     try:
-        DB_REGL = build_index_for("reglementations", force_rebuild=False)
+        DB_REGL = build_index_for("reglementations", parser=settings.rag_parser, force_rebuild=False)
         print("[startup] reglementations loaded")
     except Exception as e:
         print("[startup] reglementations failed:", repr(e))
@@ -67,7 +69,7 @@ def health():
 def rebuild_reglementations():
     global DB_REGL
 
-    DB_REGL = build_index_for("reglementations", force_rebuild=True)
+    DB_REGL = build_index_for("reglementations", parser=settings.rag_parser, force_rebuild=False)
 
     return {"status": "reglementations rebuilt"}
 
@@ -76,7 +78,7 @@ def rebuild_reglementations():
 def rebuild_studyplans():
     global DB_STUDY
 
-    DB_STUDY = build_index_for("studyplans", force_rebuild=True)
+    DB_STUDY = build_index_for("studyplans", parser=settings.rag_parser, force_rebuild=False)
 
     return {"status": "studyplans rebuilt"}
 
@@ -88,14 +90,14 @@ def rebuild():
     result = {}
 
     try:
-        DB_STUDY = build_index_for("studyplans", force_rebuild=True)
+        DB_STUDY = build_index_for("studyplans", parser=settings.rag_parser, force_rebuild=False)
         result["studyplans"] = "rebuilt"
     except Exception as e:
         DB_STUDY = None
         result["studyplans"] = f"failed: {e}"
 
     try:
-        DB_REGL = build_index_for("reglementations", force_rebuild=True)
+        DB_REGL = build_index_for("reglementations", parser=settings.rag_parser, force_rebuild=False)
         result["reglementations"] = "rebuilt"
     except Exception as e:
         DB_REGL = None

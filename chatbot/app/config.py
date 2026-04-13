@@ -16,6 +16,7 @@ class Settings(BaseModel):
     ollama_host: str = os.getenv('OLLAMA_HOST', 'http://localhost:11434')
     ollama_model: str = os.getenv('OLLAMA_MODEL', 'mistral')
     ollama_embedding_model: str = os.getenv('OLLAMA_EMBEDDING_MODEL', 'nomic-embed-text')
+    rag_parser: str = os.getenv("RAG_PARSER", "pdfjs")
     
     k: int = int(os.getenv('RETRIEVAL_K', '8'))
 
@@ -27,15 +28,27 @@ class Settings(BaseModel):
     def studyplans_parsed(self) -> Path:
         if self.studyplans_parsed_override:
             return Path(self.studyplans_parsed_override)
-        candidate = self.parsed_dir / 'studyplans'
-        return candidate if candidate.exists() else DEFAULT_STUDYPLANS_PARSED
+
+        if self.rag_parser == "llamaparse":
+            return PROJECT_ROOT / "scrapy_crawler" / "outputs" / "parsed_fulltext_llamaparse"
+
+        if self.rag_parser == "docling":
+            return PROJECT_ROOT / "scrapy_crawler" / "outputs" / "parsed_fulltext_docling"
+
+        return DEFAULT_STUDYPLANS_PARSED
 
     @property
     def reglementations_parsed(self) -> Path:
         if self.reglementations_parsed_override:
             return Path(self.reglementations_parsed_override)
-        candidate = self.parsed_dir / 'reglementations'
-        return candidate if candidate.exists() else DEFAULT_REGULATIONS_PARSED
+
+        if self.rag_parser == "llamaparse":
+            return PROJECT_ROOT / "scrapy_crawler" / "outputs" / "reglementation_docs" / "parsed_fulltext_llamaparse"
+
+        if self.rag_parser == "docling":
+            return PROJECT_ROOT / "scrapy_crawler" / "outputs" / "reglementation_docs" / "parsed_fulltext_docling"
+
+        return DEFAULT_REGULATIONS_PARSED
 
     @property
     def studyplans_index(self) -> Path:
